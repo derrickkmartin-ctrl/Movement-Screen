@@ -98,6 +98,8 @@ html, body { height: 100%; background: var(--bg); color: var(--ink); font-family
 .chip.on-dysfunc { background: rgba(224,104,104,.15); border-color: var(--red);    color: var(--red);    }
 .chip.on-flag    { background: rgba(184,154,232,.15); border-color: var(--purple); color: var(--purple); }
 .chip.on-info    { background: rgba(200,184,154,.15); border-color: var(--accent); color: var(--accent); }
+.chip.on-goal    { background: rgba(126,200,184,.18); border-color: var(--teal);   color: var(--teal);   }
+.chip.on-goal.maxed { opacity: .4; }
 
 /* ── FINDING CARDS ── */
 .finding-card {
@@ -199,7 +201,8 @@ html, body { height: 100%; background: var(--bg); color: var(--ink); font-family
 // State
 const state = {
   step: 0,
-  client: { name: '', date: '', history: '', goal: '', flags: [], complaints: '' },
+  client: { name: '', date: '', history: '', goals: [], goalOther: '', flags: [], flagOther: '', complaints: '' },
+  slsEnabled: false,
   screens: {}, // { findingName: { severity: 'clean'|'comp'|'dysfunc', notes: '' } }
   result: { corrective: '', flags: '', summary: '' },
 };
@@ -235,7 +238,7 @@ const SCREENS = [
     ],
     conditional: false,
   },
-  { // Step 3
+  { // Step 3 — optional, off by default
     id: 'sls',
     title: 'Single Leg Squat',
     subtitle: '5 reps each side. Observe from front. Compare L/R. Hip drop >5° or knee past midline = clinically significant.',
@@ -244,7 +247,9 @@ const SCREENS = [
       'Knee valgus on descent',
       'Trunk lateral flexion',
     ],
-    conditional: false,
+    conditional: true,
+    trigger: () => state.slsEnabled,
+    slsGate: true,
   },
   { // Step 4
     id: 'push',
@@ -363,6 +368,22 @@ function render() {
 
 function renderClientStep() {
   const c = state.client;
+
+  const GOALS = [
+    'Lose body fat', 'Build strength', 'Build muscle', 'Improve mobility',
+    'Reduce pain', 'Improve posture', 'Athletic performance', 'General fitness',
+    'Post-rehab return', 'Stress & recovery',
+  ];
+
+  const FLAGS = [
+    'Tight hips', 'Knee pain', 'Achilles / ankle issues', 'Shoulder pain',
+    'Low back pain', 'Neck pain', 'Hypermobility (hEDS/HSD)',
+    'Post-surgical', 'Acute pain today', 'Osteoporosis',
+  ];
+
+  const selectedGoals = c.goals || [];
+  const selectedFlags = c.flags || [];
+
   return `
     <div class="section-label">Client Details</div>
     <div class="field">
@@ -377,20 +398,53 @@ function renderClientStep() {
       <label>Training History</label>
       <input type="text" id="c_hist" value="${c.history}" placeholder="e.g. 2 years casual, just running" oninput="state.client.history=this.value">
     </div>
-    <div class="field">
-      <label>Primary Goal</label>
-      <input type="text" id="c_goal" value="${c.goal}" placeholder="e.g. lose fat, build strength, reduce pain" oninput="state.client.goal=this.value">
-    </div>
+
     <div class="divider"></div>
-    <div class="section-label">Special Flags</div>
+    <div class="section-label">Primary Goals <span style="color:var(--ink3);font-weight:400;text-transform:none;letter-spacing:0;font-size:11px">— pick top 3</span></div>
+    <p style="font-size:13px;color:var(--ink3);margin-bottom:12px;">${selectedGoals.length}/3 selected</p>
     <div class="chip-group">
-      ${['Hypermobility (hEDS/HSD)', 'Acute pain today', 'Post-surgical', 'Pregnant/postpartum', 'Osteoporosis', 'Neurological'].map(f =>
-        `<div class="chip ${state.client.flags.includes(f) ? 'on-flag' : ''}" data-flag="${f}">${f}</div>`
-      ).join('')}
+      ${GOALS.map(g => {
+        const on = selectedGoals.includes(g);
+        const maxed = !on && selectedGoals.length >= 3;
+        return `<div class="chip ${on ? 'on-goal' : ''} ${maxed ? 'maxed' : ''}" data-goal="${g}">${g}</div>`;
+      }).join('')}
     </div>
     <div class="field">
-      <label>Chief Complaint / Notes</label>
+      <label style="font-size:12px">Other goal (optional)</label>
+      <input type="text" id="c_goal_other" value="${c.goalOther || ''}" placeholder="Describe..." oninput="state.client.goalOther=this.value">
+    </div>
+
+    <div class="divider"></div>
+    <div class="section-label">Symptom Flags <span style="color:var(--ink3);font-weight:400;text-transform:none;letter-spacing:0;font-size:11px">— select all that apply</span></div>
+    <div class="chip-group">
+      ${FLAGS.map(f => {
+        const on = selectedFlags.includes(f);
+        return `<div class="chip ${on ? 'on-flag' : ''}" data-flag="${f}">${f}</div>`;
+      }).join('')}
+    </div>
+    <div class="field">
+      <label style="font-size:12px">Other (optional)</label>
+      <input type="text" id="c_flag_other" value="${c.flagOther || ''}" placeholder="Any other relevant flags..." oninput="state.client.flagOther=this.value">
+    </div>
+
+    <div class="divider"></div>
+    <div class="section-label">Chief Complaint / Notes</div>
+    <div class="field">
       <textarea id="c_complaints" placeholder="Pain location, symptoms, anything relevant..." oninput="state.client.complaints=this.value">${c.complaints}</textarea>
+    </div>
+
+    <div class="divider"></div>
+    <div class="section-label">Assessment Options</div>
+    <div class="finding-card" style="display:flex;align-items:flex-start;gap:14px;cursor:pointer" id="sls-toggle-card">
+      <div style="flex:1">
+        <div style="font-size:14px;font-weight:600;margin-bottom:4px">Include Single Leg Squat screen</div>
+        <div style="font-size:12px;color:var(--ink3);line-height:1.5">Off by default. The SLS isolates unilateral hip/knee stability deficits invisible in bilateral screening — but requires the client to balance on one leg. Enable for clients who are able and willing.</div>
+      </div>
+      <div style="flex-shrink:0;margin-top:2px">
+        <div style="width:44px;height:26px;border-radius:13px;background:${state.slsEnabled ? 'var(--teal)' : 'var(--surf3)'};position:relative;transition:background .2s" id="sls-track">
+          <div style="position:absolute;top:3px;left:${state.slsEnabled ? '21px' : '3px'};width:20px;height:20px;border-radius:50%;background:#fff;transition:left .2s"></div>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -488,6 +542,17 @@ function renderResults() {
 // INTERACTIONS
 // ═══════════════════════════════════════════════════════════════════
 
+function toggleGoal(g) {
+  const goals = state.client.goals;
+  const i = goals.indexOf(g);
+  if (i > -1) {
+    goals.splice(i, 1);
+  } else if (goals.length < 3) {
+    goals.push(g);
+  }
+  render();
+}
+
 function toggleClientFlag(f) {
   const i = state.client.flags.indexOf(f);
   if (i > -1) state.client.flags.splice(i, 1);
@@ -517,21 +582,37 @@ function bindDelegated() {
   const scroll = document.getElementById('scrollArea');
 
   scroll.addEventListener('click', e => {
+    // SLS toggle card
+    if (e.target.closest('#sls-toggle-card')) {
+      state.slsEnabled = !state.slsEnabled;
+      render();
+      return;
+    }
+    // Goal chips
+    const goalEl = e.target.closest('[data-goal]');
+    if (goalEl) {
+      toggleGoal(goalEl.dataset.goal);
+      return;
+    }
+    // Flag chips
+    const flagEl = e.target.closest('[data-flag]');
+    if (flagEl) {
+      toggleClientFlag(flagEl.dataset.flag);
+      return;
+    }
+    // Finding toggle
     const toggleEl = e.target.closest('[data-action="toggle"]');
     if (toggleEl) {
       const screen = SCREENS.find(s => s.id === toggleEl.dataset.screen);
       if (screen) toggleFinding(screen.findings[parseInt(toggleEl.dataset.idx)]);
       return;
     }
+    // Severity buttons
     const sevEl = e.target.closest('[data-action="severity"]');
     if (sevEl) {
       const screen = SCREENS.find(s => s.id === sevEl.dataset.screen);
       if (screen) setSeverity(screen.findings[parseInt(sevEl.dataset.idx)], sevEl.dataset.sev);
       return;
-    }
-    const flagEl = e.target.closest('[data-flag]');
-    if (flagEl) {
-      toggleClientFlag(flagEl.dataset.flag);
     }
   });
 
@@ -575,7 +656,8 @@ function nextStep() {
     state.client.name = document.getElementById('c_name')?.value || '';
     state.client.date = document.getElementById('c_date')?.value || '';
     state.client.history = document.getElementById('c_hist')?.value || '';
-    state.client.goal = document.getElementById('c_goal')?.value || '';
+    state.client.goalOther = document.getElementById('c_goal_other')?.value || '';
+    state.client.flagOther = document.getElementById('c_flag_other')?.value || '';
     state.client.complaints = document.getElementById('c_complaints')?.value || '';
   }
 
@@ -598,7 +680,9 @@ function prevStep() {
 
 function startOver() {
   Object.assign(state, {
-    step: 0, client: { name:'', date:'', history:'', goal:'', flags:[], complaints:'' },
+    step: 0,
+    client: { name:'', date:'', history:'', goals:[], goalOther:'', flags:[], flagOther:'', complaints:'' },
+    slsEnabled: false,
     screens: {}, screenNotes: {}, result: { corrective:'', flags:'', summary:'' },
   });
   activeStep = 0;
@@ -636,6 +720,16 @@ async function generate() {
     }
   });
 
+  const goalStr = [
+    ...(state.client.goals || []),
+    ...(state.client.goalOther ? [state.client.goalOther] : []),
+  ].join(', ') || 'Not specified';
+
+  const flagStr = [
+    ...(state.client.flags || []),
+    ...(state.client.flagOther ? [state.client.flagOther] : []),
+  ].join(', ') || 'None';
+
   const hypermobile = state.client.flags.includes('Hypermobility (hEDS/HSD)');
 
   const systemPrompt = `You are a clinical exercise prescriber for a personal trainer and licensed massage therapist. You generate precise, evidence-informed corrective prescriptions based on movement screen findings and a Clinical Decision Matrix.
@@ -669,9 +763,9 @@ Format: • [DO/DO NOT/FLAG]: [specific instruction tied to a finding]
   const userPrompt = `CLIENT: ${state.client.name || 'Unknown'}
 Date: ${state.client.date || 'Today'}
 Training history: ${state.client.history || 'Not provided'}
-Goal: ${state.client.goal || 'Not specified'}
+Goals: ${goalStr}
 Complaints: ${state.client.complaints || 'None'}
-Special flags: ${state.client.flags.join(', ') || 'None'}
+Symptom flags: ${flagStr}
 
 MOVEMENT SCREEN FINDINGS WITH MATRIX DATA:
 ${matrixRef}
