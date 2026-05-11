@@ -324,31 +324,22 @@ let activeStep = 0; // 0-indexed into the flow
 
 function render() {
   const scroll = document.getElementById('scrollArea');
-  const btnNext = document.getElementById('btnNext');
-  const btnBack = document.getElementById('btnBack');
   const stepLabel = document.getElementById('stepLabel');
   const screenTitle = document.getElementById('screenTitle');
   const bottomNav = document.getElementById('bottomNav');
   const progress = document.getElementById('progressBar');
 
-  // Progress
   progress.style.width = `${((activeStep + 1) / (TOTAL_STEPS + 1)) * 100}%`;
-  btnBack.style.display = activeStep === 0 ? 'none' : '';
-
   scroll.scrollTop = 0;
 
   if (activeStep === 0) {
     stepLabel.textContent = 'Step 1 of 9';
     screenTitle.textContent = 'Client Info';
     scroll.innerHTML = renderClientStep();
-    btnNext.textContent = 'Begin Assessment →';
-    btnNext.disabled = false;
-    btnNext.className = 'btn-next';
     bottomNav.innerHTML = `
-      <button class="btn-back" id="btnBack" style="display:none" onclick="prevStep()">←</button>
+      <button class="btn-back" style="display:none" onclick="prevStep()">←</button>
       <button class="btn-next" onclick="nextStep()">Begin Assessment →</button>
     `;
-    bindChips();
   } else if (activeStep <= 8) {
     const screen = SCREENS[activeStep - 1];
     stepLabel.textContent = `Step ${activeStep + 1} of 9`;
@@ -358,8 +349,6 @@ function render() {
       <button class="btn-back" onclick="prevStep()">←</button>
       <button class="btn-next" onclick="nextStep()">Continue →</button>
     `;
-    // Rebind chips
-    bindChips();
   } else {
     // Results
     stepLabel.textContent = 'Results';
@@ -524,37 +513,40 @@ function setNote(finding, val) {
   if (state.screens[finding]) state.screens[finding].notes = val;
 }
 
-function bindChips() {
-  // Finding cards — look up name by screen id + index to avoid HTML encoding issues
-  document.querySelectorAll('[data-idx]').forEach(el => {
-    const screenId = el.dataset.screen;
-    const idx      = parseInt(el.dataset.idx);
-    const action   = el.dataset.action;
-    const sev      = el.dataset.sev;
-    const screen   = SCREENS.find(s => s.id === screenId);
-    if (!screen) return;
-    const finding  = screen.findings[idx];
-    if (!finding) return;
+function bindDelegated() {
+  const scroll = document.getElementById('scrollArea');
 
-    if (action === 'toggle') {
-      el.addEventListener('click', () => toggleFinding(finding));
-    } else if (action === 'severity') {
-      el.addEventListener('click', () => setSeverity(finding, sev));
-    } else if (action === 'note') {
-      el.addEventListener('input', () => setNote(finding, el.value));
+  scroll.addEventListener('click', e => {
+    const toggleEl = e.target.closest('[data-action="toggle"]');
+    if (toggleEl) {
+      const screen = SCREENS.find(s => s.id === toggleEl.dataset.screen);
+      if (screen) toggleFinding(screen.findings[parseInt(toggleEl.dataset.idx)]);
+      return;
+    }
+    const sevEl = e.target.closest('[data-action="severity"]');
+    if (sevEl) {
+      const screen = SCREENS.find(s => s.id === sevEl.dataset.screen);
+      if (screen) setSeverity(screen.findings[parseInt(sevEl.dataset.idx)], sevEl.dataset.sev);
+      return;
+    }
+    const flagEl = e.target.closest('[data-flag]');
+    if (flagEl) {
+      toggleClientFlag(flagEl.dataset.flag);
     }
   });
-  // Client flag chips
-  document.querySelectorAll('[data-flag]').forEach(el => {
-    el.addEventListener('click', () => toggleClientFlag(el.dataset.flag));
-  });
-  // Screen notes textarea
-  document.querySelectorAll('[data-screen-id]').forEach(el => {
-    const id = el.dataset.screenId;
-    el.addEventListener('input', () => {
+
+  scroll.addEventListener('input', e => {
+    const noteEl = e.target.closest('[data-action="note"]');
+    if (noteEl) {
+      const screen = SCREENS.find(s => s.id === noteEl.dataset.screen);
+      if (screen) setNote(screen.findings[parseInt(noteEl.dataset.idx)], noteEl.value);
+      return;
+    }
+    const screenNoteEl = e.target.closest('[data-screen-id]');
+    if (screenNoteEl) {
       state.screenNotes = state.screenNotes || {};
-      state.screenNotes[id] = el.value;
-    });
+      state.screenNotes[screenNoteEl.dataset.screenId] = screenNoteEl.value;
+    }
   });
 }
 
@@ -766,6 +758,7 @@ function sendEmail() {
 // ── Init ──────────────────────────────────────────────────────────
 state.client.date = new Date().toISOString().slice(0, 10);
 render();
+bindDelegated();
 </script>
 </body>
 </html>
