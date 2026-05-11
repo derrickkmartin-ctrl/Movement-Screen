@@ -192,6 +192,7 @@ html, body { height: 100%; background: var(--bg); color: var(--ink); font-family
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="matrix-data.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════════════════
@@ -533,7 +534,52 @@ function renderResults() {
     </div>
     <div class="action-row">
       <button class="action-btn" onclick="copyAll()">Copy All</button>
-      <button class="action-btn primary" onclick="sendEmail()">Send to Email ↗</button>
+      <button class="action-btn" onclick="sendEmail()">Email ↗</button>
+    </div>
+    <div style="margin-top:10px">
+      <button class="btn-next" onclick="showProgramOptions()" style="background:var(--accent);color:#1a1200;width:100%">⬇ Build Program Excel</button>
+    </div>
+    <div id="program-options" style="display:none;margin-top:14px">
+      <div class="finding-card">
+        <div class="section-label" style="margin-bottom:12px">Program Setup</div>
+        <div class="field">
+          <label>Program length</label>
+          <div class="chip-group" id="weeks-chips">
+            ${[4,8,12].map((n,i) => `<div class="chip ${i===0?'on-info':''}" data-weeks="${n}" onclick="selectWeeks(${n})">${n} weeks</div>`).join('')}
+          </div>
+        </div>
+        <div class="field">
+          <label>Sessions per week</label>
+          <div class="chip-group" id="sessions-chips">
+            ${[2,3,4,5].map(n => `<div class="chip ${n===3?'on-info':''}" data-sessions="${n}" onclick="selectSessions(${n})">${n}×/week</div>`).join('')}
+          </div>
+        </div>
+        <div class="field">
+          <label>Session length</label>
+          <div class="chip-group" id="duration-chips">
+            ${['30–45 min','45–60 min','60–75 min','75+ min'].map((d,i) => `<div class="chip ${i===1?'on-info':''}" data-duration="${d}" onclick="selectDuration('${d}')">${d}</div>`).join('')}
+          </div>
+        </div>
+        <div class="field">
+          <label>Workout style preference</label>
+          <div class="chip-group" id="style-chips">
+            ${['Strength focus','Hypertrophy focus','Athletic / Performance','Corrective heavy','Mixed / Balanced'].map((s,i) => `<div class="chip ${i===4?'on-info':''}" data-style="${s}" onclick="selectStyle('${s}')">${s}</div>`).join('')}
+          </div>
+        </div>
+        <div class="field">
+          <label>Equipment available</label>
+          <input type="text" id="prog-equipment" placeholder="e.g. full commercial gym, dumbbells + bands" style="background:var(--surf2);border:1px solid var(--border2);border-radius:var(--rsm);color:var(--ink);font-size:14px;padding:10px 12px;width:100%;outline:none">
+        </div>
+        <div class="field">
+          <label>Phase / additional context</label>
+          <input type="text" id="prog-context" placeholder="e.g. Phase 1 — Foundation, post-rehab, off-season" style="background:var(--surf2);border:1px solid var(--border2);border-radius:var(--rsm);color:var(--ink);font-size:14px;padding:10px 12px;width:100%;outline:none">
+        </div>
+        <div class="callout" style="margin-bottom:12px;font-size:12px">
+          Corrective exercises from the assessment are automatically built into every session warm-up and accessory block. Workout type and tab structure are decided by Claude based on the client's goals, findings, and preferences above.
+        </div>
+        <button class="btn-next" onclick="generateProgram()" id="gen-prog-btn" style="width:100%;margin-top:4px">Generate &amp; Download Excel</button>
+        <div id="prog-status" style="margin-top:10px;font-size:13px;color:var(--ink2);text-align:center;display:none"></div>
+      </div>
     </div>
   `;
 }
@@ -840,6 +886,74 @@ function copyAll() {
   navigator.clipboard.writeText(text).catch(() => {});
 }
 
+function copyForProgram() {
+  const c = state.client;
+  const r = state.result;
+
+  const goalStr = [
+    ...(c.goals || []),
+    ...(c.goalOther ? [c.goalOther] : []),
+  ].join(', ') || 'Not specified';
+
+  const flagStr = [
+    ...(c.flags || []),
+    ...(c.flagOther ? [c.flagOther] : []),
+  ].join(', ') || 'None';
+
+  const findings = Object.entries(state.screens);
+  const findingLines = findings.map(([name, data]) => {
+    const sev = data.severity === 'clean' ? 'Mild' : data.severity === 'comp' ? 'Moderate' : 'Significant';
+    return `  • ${name} — ${sev}${data.notes ? ` (${data.notes})` : ''}`;
+  }).join('\n');
+
+  const text =
+`═══════════════════════════════════════════════
+PROGRAM BUILD REQUEST
+═══════════════════════════════════════════════
+
+CLIENT: ${c.name || 'Unknown'}
+Date assessed: ${c.date || 'Today'}
+Training history: ${c.history || 'Not provided'}
+Goals: ${goalStr}
+Symptom flags: ${flagStr}
+Complaints: ${c.complaints || 'None'}
+
+───────────────────────────────────────────────
+MOVEMENT SCREEN FINDINGS
+───────────────────────────────────────────────
+${findingLines || '  No findings recorded'}
+
+───────────────────────────────────────────────
+CORRECTIVE PLAN (from assessment)
+───────────────────────────────────────────────
+${r.corrective}
+
+───────────────────────────────────────────────
+PROGRAM DESIGN FLAGS
+───────────────────────────────────────────────
+${r.flags}
+
+───────────────────────────────────────────────
+SCREEN SUMMARY
+───────────────────────────────────────────────
+${r.summary}
+
+═══════════════════════════════════════════════
+ADD BEFORE SENDING TO CLAUDE:
+
+Session frequency: ___ days/week
+Session length: ___ minutes
+Equipment available: _______________
+Phase / week: _______________
+Any additional context: _______________
+═══════════════════════════════════════════════`;
+
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector('[onclick="copyForProgram()"]');
+    if (btn) { btn.textContent = 'Copied ✓'; setTimeout(() => btn.textContent = 'Copy for Program ↗', 2000); }
+  }).catch(() => {});
+}
+
 function sendEmail() {
   const r = state.result;
   const name = state.client.name || 'Client';
@@ -849,6 +963,567 @@ function sendEmail() {
   window.location.href = `mailto:?subject=${subject}&body=${body}`;
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// PROGRAM GENERATION — EXCEL BUILDER
+// ═══════════════════════════════════════════════════════════════════
+
+let programWeeks    = 4;
+let programSessions = 3;
+let programDuration = '45–60 min';
+let programStyle    = 'Mixed / Balanced';
+
+function showProgramOptions() {
+  const el = document.getElementById('program-options');
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function selectWeeks(n) {
+  programWeeks = n;
+  document.querySelectorAll('[data-weeks]').forEach(el => {
+    el.className = 'chip' + (parseInt(el.dataset.weeks) === n ? ' on-info' : '');
+  });
+}
+
+function selectSessions(n) {
+  programSessions = n;
+  document.querySelectorAll('[data-sessions]').forEach(el => {
+    el.className = 'chip' + (parseInt(el.dataset.sessions) === n ? ' on-info' : '');
+  });
+}
+
+function selectDuration(d) {
+  programDuration = d;
+  document.querySelectorAll('[data-duration]').forEach(el => {
+    el.className = 'chip' + (el.dataset.duration === d ? ' on-info' : '');
+  });
+}
+
+function selectStyle(s) {
+  programStyle = s;
+  document.querySelectorAll('[data-style]').forEach(el => {
+    el.className = 'chip' + (el.dataset.style === s ? ' on-info' : '');
+  });
+}
+
+async function generateProgram() {
+  const key = localStorage.getItem('apiKey');
+  if (!key) { openSettings(); return; }
+
+  const equipment = document.getElementById('prog-equipment')?.value || 'Full commercial gym';
+  const context   = document.getElementById('prog-context')?.value || '';
+  const btn       = document.getElementById('gen-prog-btn');
+  const status    = document.getElementById('prog-status');
+
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+  status.style.display = 'block';
+  status.textContent = `Calling Claude to build your ${programWeeks}-week program…`;
+
+  const c = state.client;
+  const r = state.result;
+
+  const goalStr  = [...(c.goals||[]), ...(c.goalOther?[c.goalOther]:[])].join(', ') || 'General fitness';
+  const flagStr  = [...(c.flags||[]), ...(c.flagOther?[c.flagOther]:[])].join(', ') || 'None';
+  const hypermobile = c.flags.includes('Hypermobility (hEDS/HSD)');
+
+  // Build corrective list sorted by severity (significant first)
+  const correctiveFindings = Object.entries(state.screens)
+    .sort(([,a],[,b]) => { const o={dysfunc:0,comp:1,clean:2}; return (o[a.severity]||2)-(o[b.severity]||2); })
+    .map(([name, data]) => {
+      const sev = data.severity==='clean'?'Mild':data.severity==='comp'?'Moderate':'Significant';
+      const m = MATRIX[name];
+      return { finding:name, severity:sev, notes:data.notes||'', smr:m?.smr||'', lengthen:m?.len||'', activate:m?.act||'', exercises:m?.ex||'' };
+    });
+
+  const findingsStr = correctiveFindings.length
+    ? correctiveFindings.map(f =>
+        `• ${f.finding} [${f.severity}]${f.notes?` — ${f.notes}`:''}\n  SMR: ${f.smr}\n  Lengthen: ${f.lengthen}\n  Activate: ${f.activate}\n  Exercises: ${f.exercises}`
+      ).join('\n\n')
+    : 'None recorded';
+
+  const waveLogic = programWeeks===4
+    ? 'Week 1: establish technique at moderate load | Week 2: +5-10% load or +1 rep | Week 3: peak week | Week 4: deload - 60% volume'
+    : programWeeks===8
+    ? 'Weeks 1-2: establish patterns | Weeks 3-4: progressive overload | Weeks 5-6: intensity peak | Week 7: volume peak | Week 8: deload'
+    : 'Weeks 1-3: foundation | Weeks 4-6: accumulation | Weeks 7-9: intensification | Weeks 10-11: peak | Week 12: deload';
+
+  const systemPrompt = `You are an expert strength and conditioning coach and corrective exercise specialist. Build a ${programWeeks}-week training program. Return ONLY valid JSON.
+
+PROGRAM: ${programWeeks} weeks, ${programSessions} sessions/week, ${programDuration}, style: ${programStyle}
+
+CORRECTIVE INTEGRATION (MANDATORY):
+- Warm-Up block: 4-6 SMR + activation exercises from findings (SIGNIFICANT findings in every session)
+- Accessory block: 3-5 lengthen + activate exercises from findings
+- SIGNIFICANT findings: every session warm-up
+- MODERATE findings: min 2 sessions/week
+- MILD findings: min 1 session/week
+- Add corrective_for field to warm-up exercises naming the finding addressed
+
+WORKOUT STYLE (${programStyle}):
+- Strength focus: 3-6 reps, 4-5 sets, 2-3min rest, compound emphasis
+- Hypertrophy focus: 8-12 reps, 3-4 sets, 60-90s rest, exercise variety
+- Athletic/Performance: power work, unilateral, sport-relevant patterns
+- Corrective heavy: reduced main volume, expanded corrective blocks
+- Mixed/Balanced: 6-10 reps, compound + accessory blend
+
+TAB STRUCTURE (choose best for client):
+- 2/week: Full Body A + Full Body B
+- 3/week: Upper/Lower/Full Body OR Push/Pull/Legs
+- 4/week: Upper A + Lower A + Upper B + Lower B
+- 5/week: Push + Pull + Legs + Upper + Lower
+
+PROGRESSION: ${waveLogic}
+
+JSON FORMAT:
+{
+  "client":"string","phase":"string","weeks":${programWeeks},"sessions_per_week":${programSessions},
+  "workout_style":"${programStyle}","tab_rationale":"string","progression_wave":"string",
+  "overview":{
+    "goals":"string",
+    "workout_approach":"2-3 sentences on training philosophy for this client",
+    "key_focuses":["string"],
+    "progression_rules":["string per week group"],
+    "corrective_priorities":["top findings and rationale"],
+    "contraindications":["DO NOT string"]
+  },
+  "sessions":[{
+    "label":"Day A","type":"Lower - Hinge Focus",
+    "blocks":[
+      {"name":"Warm-Up / SMR + Activation","color":"TEAL","exercises":[
+        {"name":"exact name","sets":"2","reps":"10","tempo":"2-0-2-0","rest":"30s","cue":"max 12 words","url":"https://youtube.com/watch?v=ID","corrective_for":"finding name"}
+      ]},
+      {"name":"Main Work","color":"NAVY","exercises":[{"name":"string","sets":"string","reps":"string","tempo":"string","rest":"string","cue":"string","url":"string"}]},
+      {"name":"Corrective / Accessory","color":"AMBER","exercises":[...]},
+      {"name":"Cool-Down","color":"GREEN","exercises":[...]}
+    ]
+  }]
+}
+
+RULES: color must be TEAL/NAVY/AMBER/GREEN/PURPLE/RED. YouTube URLs from Jeff Nippard/Squat University/Alan Thrall/e3rehab/Bob&Brad. Cues max 12 words.${hypermobile ? ' HYPERMOBILITY: NO passive end-range stretching, isometrics/slow eccentrics only, mark mods with (HM mod) in cue.' : ''}
+Return ONLY JSON.`;
+
+  const userPrompt = `CLIENT: ${c.name||'Client'}
+Goals: ${goalStr}
+Style preference: ${programStyle}
+Symptom flags: ${flagStr}
+Training history: ${c.history||'Not provided'}
+Equipment: ${equipment}
+Sessions/week: ${programSessions} | Session length: ${programDuration} | Length: ${programWeeks} weeks
+Phase/context: ${context||'Phase 1 - Foundation'}
+
+FINDINGS (priority order):
+${findingsStr}
+
+CORRECTIVE PLAN:
+${r.corrective}
+
+PROGRAM FLAGS:
+${r.flags}
+
+Build ${programWeeks}-week program. Corrective exercises from findings go into every warm-up and accessory block. Match workout style to preference. Every exercise needs a YouTube URL.`;
+
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8000,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
+      }),
+    });
+
+    if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+
+    const data = await res.json();
+    let raw = data.content[0].text.trim();
+    raw = raw.replace(/^```json\s*/i,'').replace(/^```\s*/,'').replace(/\s*```$/,'');
+
+    status.textContent = 'Building Excel file…';
+    const program = JSON.parse(raw);
+    buildExcel(program);
+
+    status.textContent = '✓ Program downloaded!';
+    btn.disabled = false;
+    btn.textContent = 'Generate & Download Excel';
+
+  } catch (e) {
+    status.textContent = `Error: ${e.message}. Check console for details.`;
+    console.error('Program generation error:', e);
+    btn.disabled = false;
+    btn.textContent = 'Generate & Download Excel';
+  }
+}
+
+function buildExcel(prog) {
+  const wb = XLSX.utils.book_new();
+
+  const C = {
+    TEAL:'1D7A6B', TEAL_L:'E8F5F3', TEAL_M:'2A9D8F',
+    NAVY:'1A2E44', NAVY_L:'EBF4FB',
+    AMBER:'E6953A', AMBER_L:'FFF6EB',
+    GREEN:'2E7D52', GREEN_L:'EAF5EE',
+    PURPLE:'6B3FA0', PURPLE_L:'F3EDFA',
+    RED:'C0392B', RED_L:'FDE8E8',
+    WHITE:'FFFFFF', DARK:'1A1A1A',
+    GRAY_L:'F5F5F5', GRAY_M:'CCCCCC',
+  };
+
+  // Color lookup — block color key → light variant key
+  const LIGHT = { TEAL:'TEAL_L', NAVY:'NAVY_L', AMBER:'AMBER_L', GREEN:'GREEN_L', PURPLE:'PURPLE_L', RED:'RED_L' };
+
+  function mkCell(v, opts={}) {
+    const { bold=false, bg=null, fg=null, sz=10, link=null, italic=false } = opts;
+    const obj = { v: v ?? '', t: typeof v === 'number' ? 'n' : 's' };
+    const fgRgb = fg ? (C[fg]||fg) : (link ? '1A5276' : C.DARK);
+    obj.s = {
+      font: { name:'Arial', sz, bold, italic, color:{rgb:fgRgb},
+              underline: !!link },
+      fill: bg ? { patternType:'solid', fgColor:{rgb: C[bg]||bg} } : undefined,
+      alignment: { wrapText:true, vertical:'center', horizontal:'left' },
+      border: {
+        top:{style:'thin',color:{rgb:C.GRAY_M}},
+        bottom:{style:'thin',color:{rgb:C.GRAY_M}},
+        left:{style:'thin',color:{rgb:C.GRAY_M}},
+        right:{style:'thin',color:{rgb:C.GRAY_M}},
+      }
+    };
+    if (link) obj.l = { Target: link };
+    return obj;
+  }
+
+  function setCell(ws, col, row, v, opts={}) {
+    ws[XLSX.utils.encode_cell({c:col, r:row})] = mkCell(v, opts);
+  }
+
+  function setRef(ws, maxCol, maxRow) {
+    ws['!ref'] = XLSX.utils.encode_range({s:{c:0,r:0}, e:{c:maxCol, r:maxRow}});
+  }
+
+  // ── OVERVIEW SHEET ─────────────────────────────────────────────
+  function makeOverview() {
+    const ws = {};
+    let r = 0;
+    const COLS = [{wch:22},{wch:58},{wch:14},{wch:12},{wch:12}];
+
+    // Title banner
+    for (let ci = 0; ci <= 4; ci++)
+      setCell(ws, ci, r, ci===0 ? `${prog.client || 'Client'} — ${prog.phase || prog.weeks+'-Week Program'}` : '', {bold:true, bg:'NAVY', fg:'WHITE', sz:15});
+    r++;
+    for (let ci = 0; ci <= 4; ci++)
+      setCell(ws, ci, r, ci===0 ? `${prog.weeks} Weeks  ·  ${prog.sessions_per_week}×/week  ·  ${prog.workout_style || ''}  ·  ${prog.tab_rationale || ''}` : '', {bg:'TEAL_M', fg:'WHITE', sz:10});
+    r += 2;
+
+    // Workout approach
+    if (prog.overview?.workout_approach) {
+      setCell(ws, 0, r, 'TRAINING APPROACH', {bold:true, bg:'TEAL', fg:'WHITE', sz:10});
+      setCell(ws, 1, r, prog.overview.workout_approach, {bg:'TEAL_L', sz:10});
+      r++;
+      r++;
+    }
+
+    // Goals
+    setCell(ws, 0, r, 'GOALS', {bold:true, bg:'TEAL', fg:'WHITE', sz:10});
+    setCell(ws, 1, r, prog.overview?.goals || '', {bg:'TEAL_L', sz:10});
+    r++;
+
+    // Corrective priorities
+    if ((prog.overview?.corrective_priorities || []).length) {
+      setCell(ws, 0, r, 'CORRECTIVE PRIORITIES', {bold:true, bg:'PURPLE', fg:'WHITE', sz:10});
+      setCell(ws, 1, r, '', {bg:'PURPLE', fg:'WHITE', sz:10});
+      r++;
+      (prog.overview.corrective_priorities).forEach(cp => {
+        setCell(ws, 0, r, '⚡', {bg:'PURPLE_L', sz:10, bold:true});
+        setCell(ws, 1, r, cp, {bg:'PURPLE_L', sz:10});
+        for (let ci=2;ci<=4;ci++) setCell(ws,ci,r,'',{bg:'PURPLE_L'});
+        r++;
+      });
+      r++;
+    }
+
+    // Key focuses
+    setCell(ws, 0, r, 'KEY FOCUSES', {bold:true, bg:'NAVY', fg:'WHITE', sz:10});
+    setCell(ws, 1, r, '', {bg:'NAVY', fg:'WHITE', sz:10});
+    r++;
+    (prog.overview?.key_focuses || []).forEach(f => {
+      setCell(ws, 0, r, '→', {bg:'GRAY_L', sz:10, bold:true});
+      setCell(ws, 1, r, f, {bg:'GRAY_L', sz:10});
+      for (let ci=2;ci<=4;ci++) setCell(ws,ci,r,'',{bg:'GRAY_L'});
+      r++;
+    });
+    r++;
+
+    // Progression
+    setCell(ws, 0, r, 'PROGRESSION', {bold:true, bg:'AMBER', fg:'WHITE', sz:10});
+    setCell(ws, 1, r, prog.progression_wave || '', {bg:'AMBER', fg:'WHITE', sz:10});
+    r++;
+    (prog.overview?.progression_rules || []).forEach(p => {
+      setCell(ws, 0, r, '●', {bg:'AMBER_L', sz:10});
+      setCell(ws, 1, r, p, {bg:'AMBER_L', sz:10});
+      for (let ci=2;ci<=4;ci++) setCell(ws,ci,r,'',{bg:'AMBER_L'});
+      r++;
+    });
+    r++;
+
+    // Contraindications
+    setCell(ws, 0, r, 'CONTRAINDICATIONS', {bold:true, bg:'RED', fg:'WHITE', sz:10});
+    setCell(ws, 1, r, '', {bg:'RED', fg:'WHITE', sz:10});
+    r++;
+    (prog.overview?.contraindications || []).forEach(con => {
+      setCell(ws, 0, r, '⚠', {bg:'RED_L', sz:10, bold:true});
+      setCell(ws, 1, r, con, {bg:'RED_L', sz:10});
+      for (let ci=2;ci<=4;ci++) setCell(ws,ci,r,'',{bg:'RED_L'});
+      r++;
+    });
+
+    ws['!cols'] = COLS;
+    ws['!merges'] = [
+      {s:{c:0,r:0},e:{c:4,r:0}},
+      {s:{c:0,r:1},e:{c:4,r:1}},
+    ];
+    setRef(ws, 4, r+2);
+    return ws;
+  }
+
+  // ── SESSION SHEET ──────────────────────────────────────────────
+  function makeSession(session) {
+    const ws = {};
+    let r = 0;
+    const HDR_COLS = ['Exercise','Sets','Reps / Duration','Tempo','Rest','Coaching Cue'];
+    const COL_W = [{wch:32},{wch:7},{wch:16},{wch:11},{wch:9},{wch:48}];
+
+    // Banner
+    const bannerTxt = `${prog.client || 'Client'}  |  ${session.label} — ${session.type}  |  ${prog.phase || prog.weeks+'-Week Program'} · ${prog.weeks} Weeks`;
+    for (let ci=0; ci<=5; ci++)
+      setCell(ws, ci, r, ci===0 ? bannerTxt : '', {bold:true, bg:'NAVY', fg:'WHITE', sz:12});
+    r++;
+    // Progression note for this session
+    const weekNotes = ['Wk 1: establish technique at moderate load',
+                       'Wk 2: +5–10% load or +1 rep per set',
+                       'Wk 3: peak week — max load with clean form',
+                       'Wk 4: deload — 60% volume, maintain intensity'];
+    for (let ci=0; ci<=5; ci++)
+      setCell(ws, ci, r, ci===0 ? weekNotes.join('   ·   ') : '', {bg:'TEAL_M', fg:'WHITE', sz:9, italic:true});
+    r++;
+
+    // Column headers
+    HDR_COLS.forEach((h, ci) => setCell(ws, ci, r, h, {bold:true, bg:'TEAL', fg:'WHITE', sz:9}));
+    r++;
+
+    // Blocks
+    (session.blocks || []).forEach(block => {
+      const bg  = block.color || 'TEAL';
+      const bgL = LIGHT[bg] || 'TEAL_L';
+
+      // Block header
+      for (let ci=0; ci<=5; ci++)
+        setCell(ws, ci, r, ci===0 ? block.name : '', {bold:true, bg, fg:'WHITE', sz:10});
+      r++;
+
+      // Exercises
+      (block.exercises || []).forEach(ex => {
+        const cueText = ex.corrective_for
+          ? `${ex.cue || ''} [→ ${ex.corrective_for}]`
+          : (ex.cue || '');
+        setCell(ws, 0, r, ex.name || '', {bg:bgL, sz:10, link: ex.url||null});
+        setCell(ws, 1, r, ex.sets || '', {bg:bgL, sz:10});
+        setCell(ws, 2, r, ex.reps || '', {bg:bgL, sz:10});
+        setCell(ws, 3, r, ex.tempo || '', {bg:bgL, sz:10});
+        setCell(ws, 4, r, ex.rest || '', {bg:bgL, sz:10});
+        setCell(ws, 5, r, cueText, {bg:'WHITE', sz:10});
+        r++;
+      });
+      r++; // spacer
+    });
+
+    ws['!cols'] = COL_W;
+    ws['!merges'] = [
+      {s:{c:0,r:0},e:{c:5,r:0}},
+      {s:{c:0,r:1},e:{c:5,r:1}},
+    ];
+    setRef(ws, 5, r+2);
+    return ws;
+  }
+
+  // ── Assemble ───────────────────────────────────────────────────
+  XLSX.utils.book_append_sheet(wb, makeOverview(), 'Program Overview');
+  (prog.sessions || []).forEach(session => {
+    const tabName = (session.label || 'Session').substring(0, 31); // Excel tab name limit
+    XLSX.utils.book_append_sheet(wb, makeSession(session), tabName);
+  });
+
+  const filename = `${(prog.client||'Program').replace(/[^a-zA-Z0-9]/g,'_')}_4Week_Program.xlsx`;
+  XLSX.writeFile(wb, filename);
+}
+  const key = localStorage.getItem('apiKey');
+  if (!key) { openSettings(); return; }
+
+  const equipment = document.getElementById('prog-equipment')?.value || 'Full commercial gym';
+  const context   = document.getElementById('prog-context')?.value || '';
+  const btn       = document.getElementById('gen-prog-btn');
+  const status    = document.getElementById('prog-status');
+
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+  status.style.display = 'block';
+  status.textContent = 'Calling Claude to build your program…';
+
+  const c = state.client;
+  const r = state.result;
+
+  const goalStr = [...(c.goals||[]), ...(c.goalOther?[c.goalOther]:[])].join(', ') || 'General fitness';
+  const flagStr = [...(c.flags||[]), ...(c.flagOther?[c.flagOther]:[])].join(', ') || 'None';
+
+  const findings = Object.entries(state.screens).map(([name, data]) => {
+    const sev = data.severity === 'clean' ? 'Mild' : data.severity === 'comp' ? 'Moderate' : 'Significant';
+    return `${name} (${sev})${data.notes ? ': ' + data.notes : ''}`;
+  }).join('; ') || 'None';
+
+  // Determine session labels based on count
+  const sessionLabels = programSessions <= 2 ? ['Day A','Day B']
+    : programSessions === 3 ? ['Day A','Day B','Day C']
+    : programSessions === 4 ? ['Day A','Day B','Day C','Day D']
+    : ['Day A','Day B','Day C','Day D','Day E'];
+  const sessionTypes = programSessions <= 2
+    ? ['Full Body A','Full Body B']
+    : programSessions === 3
+    ? ['Lower / Hinge focus','Upper / Push-Pull focus','Full Body / Athletic']
+    : ['Lower A (Hinge)','Upper A (Push)','Lower B (Squat)','Upper B (Pull)'];
+
+  const systemPrompt = `You are an expert strength and conditioning coach building a 4-week training program. You must return ONLY valid JSON — no prose, no markdown, no explanation. Your JSON will be parsed directly.
+
+The program format follows this exact structure:
+
+{
+  "client": "string",
+  "phase": "string",
+  "weeks": 4,
+  "sessions_per_week": number,
+  "overview": {
+    "goals": "string",
+    "key_focuses": ["string"],
+    "progression_rules": ["string"],
+    "contraindications": ["string"]
+  },
+  "sessions": [
+    {
+      "label": "Day A",
+      "type": "Lower / Hinge Focus",
+      "blocks": [
+        {
+          "name": "Warm-Up / Activation",
+          "color": "TEAL",
+          "exercises": [
+            {
+              "name": "Exercise Name",
+              "sets": "2",
+              "reps": "10",
+              "tempo": "2-0-2-0",
+              "rest": "30s",
+              "cue": "One concise coaching cue",
+              "url": "https://www.youtube.com/..."
+            }
+          ]
+        },
+        {
+          "name": "Main Work",
+          "color": "NAVY",
+          "exercises": [...]
+        },
+        {
+          "name": "Corrective / Accessory",
+          "color": "AMBER",
+          "exercises": [...]
+        },
+        {
+          "name": "Cool-Down",
+          "color": "GREEN",
+          "exercises": [...]
+        }
+      ]
+    }
+  ]
+}
+
+RULES:
+- color must be one of: TEAL, NAVY, AMBER, GREEN, PURPLE, RED
+- Every exercise must have a real YouTube URL from a reputable source (Jeff Nippard, Squat University, Alan Thrall, e3rehab, or similar)
+- Use EXACT exercise names from the client's corrective plan where applicable
+- Warm-Up block: 4–6 exercises from the corrective plan findings
+- Main Work block: 4–6 compound exercises matching goals and equipment
+- Corrective/Accessory block: 3–4 exercises addressing specific findings
+- Cool-Down block: 3–4 stretches or breathing exercises
+- Progression rule: each week increases load or reps by a specific amount
+- Include contraindications as explicit do-not-do statements
+${state.client.flags.includes('Hypermobility (hEDS/HSD)') ? '- CLIENT HAS HYPERMOBILITY: NO passive end-range stretching, isometrics and slow eccentrics only' : ''}
+
+Return ONLY the JSON object. Nothing else.`;
+
+  const userPrompt = `CLIENT: ${c.name || 'Client'}
+Goals: ${goalStr}
+Symptom flags: ${flagStr}
+Training history: ${c.history || 'Not provided'}
+Equipment: ${equipment}
+Sessions/week: ${programSessions} (${sessionLabels.join(', ')})
+Session length: ${programDuration}
+Phase/context: ${context || 'Phase 1 — Foundation'}
+
+MOVEMENT SCREEN FINDINGS: ${findings}
+
+CORRECTIVE PLAN FROM ASSESSMENT:
+${r.corrective}
+
+PROGRAM DESIGN FLAGS:
+${r.flags}
+
+Build a 4-week program with ${programSessions} sessions/week: ${sessionLabels.map((l,i) => l+' = '+sessionTypes[i]).join(', ')}.
+Integrate the corrective exercises into warm-ups and accessory blocks. Main work must address the client's primary goals. Every exercise needs a YouTube URL.`;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8000,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
+      }),
+    });
+
+    if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+
+    const data = await res.json();
+    let raw = data.content[0].text.trim();
+    // Strip any accidental markdown fences
+    raw = raw.replace(/^```json\s*/i,'').replace(/^```\s*/,'').replace(/\s*```$/,'');
+
+    status.textContent = 'Building Excel file…';
+    const program = JSON.parse(raw);
+    buildExcel(program);
+
+    status.textContent = '✓ Program downloaded!';
+    btn.disabled = false;
+    btn.textContent = 'Generate & Download Excel';
+
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+    btn.disabled = false;
+    btn.textContent = 'Generate & Download Excel';
+  }
+}
 // ── Init ──────────────────────────────────────────────────────────
 state.client.date = new Date().toISOString().slice(0, 10);
 render();
