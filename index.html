@@ -348,6 +348,7 @@ function render() {
       <button class="btn-back" id="btnBack" style="display:none" onclick="prevStep()">←</button>
       <button class="btn-next" onclick="nextStep()">Begin Assessment →</button>
     `;
+    bindChips();
   } else if (activeStep <= 8) {
     const screen = SCREENS[activeStep - 1];
     stepLabel.textContent = `Step ${activeStep + 1} of 9`;
@@ -395,7 +396,7 @@ function renderClientStep() {
     <div class="section-label">Special Flags</div>
     <div class="chip-group">
       ${['Hypermobility (hEDS/HSD)', 'Acute pain today', 'Post-surgical', 'Pregnant/postpartum', 'Osteoporosis', 'Neurological'].map(f =>
-        `<div class="chip ${state.client.flags.includes(f) ? 'on-flag' : ''}" onclick="toggleClientFlag('${f}')">${f}</div>`
+        `<div class="chip ${state.client.flags.includes(f) ? 'on-flag' : ''}" data-flag="${f}">${f}</div>`
       ).join('')}
     </div>
     <div class="field">
@@ -425,18 +426,18 @@ function renderScreenStep(screen) {
     const sel = state.screens[finding];
     const isSelected = !!sel;
     html += `
-      <div class="finding-card" id="fc_${esc(finding)}">
-        <div class="finding-name" onclick="toggleFinding('${esc(finding)}')" style="cursor:pointer">
+      <div class="finding-card" id="fc-${finding.replace(/[^a-z0-9]/gi,'_')}">
+        <div class="finding-name" data-finding="${finding}" data-action="toggle" style="cursor:pointer">
           ${isSelected ? `<span style="color:var(--teal)">●</span>` : `<span style="color:var(--ink3)">○</span>`}
           &nbsp;${finding}
         </div>
         ${isSelected ? `
           <div class="severity-row">
-            <button class="sev-btn ${sel.severity === 'clean' ? 'active-clean' : ''}" onclick="setSeverity('${esc(finding)}','clean')">✓ Clean</button>
-            <button class="sev-btn ${sel.severity === 'comp' ? 'active-comp' : ''}" onclick="setSeverity('${esc(finding)}','comp')">~ Compensating</button>
-            <button class="sev-btn ${sel.severity === 'dysfunc' ? 'active-dysfunc' : ''}" onclick="setSeverity('${esc(finding)}','dysfunc')">✗ Dysfunctional</button>
+            <button class="sev-btn ${sel.severity === 'clean' ? 'active-clean' : ''}" data-finding="${finding}" data-action="severity" data-sev="clean">✓ Clean</button>
+            <button class="sev-btn ${sel.severity === 'comp' ? 'active-comp' : ''}" data-finding="${finding}" data-action="severity" data-sev="comp">~ Compensating</button>
+            <button class="sev-btn ${sel.severity === 'dysfunc' ? 'active-dysfunc' : ''}" data-finding="${finding}" data-action="severity" data-sev="dysfunc">✗ Dysfunctional</button>
           </div>
-          <textarea class="notes-field" placeholder="Notes (optional)..." oninput="setNote('${esc(finding)}',this.value)">${sel.notes || ''}</textarea>
+          <textarea class="notes-field" placeholder="Notes (optional)..." data-finding="${finding}" data-action="note">${sel.notes || ''}</textarea>
         ` : ''}
       </div>
     `;
@@ -446,7 +447,7 @@ function renderScreenStep(screen) {
   html += `
     <div class="divider"></div>
     <div class="section-label">Screen Notes</div>
-    <textarea class="notes-field" style="min-height:72px" placeholder="General observations for this screen..." oninput="state.screenNotes = state.screenNotes || {}; state.screenNotes['${screen.id}'] = this.value">${(state.screenNotes || {})[screen.id] || ''}</textarea>
+    <textarea class="notes-field" style="min-height:72px" placeholder="General observations for this screen..." data-screen-id="${screen.id}">${(state.screenNotes || {})[screen.id] || ''}</textarea>
   `;
 
   // Last screen — show Generate button
@@ -498,8 +499,6 @@ function renderResults() {
 // INTERACTIONS
 // ═══════════════════════════════════════════════════════════════════
 
-function esc(str) { return str.replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
-
 function toggleClientFlag(f) {
   const i = state.client.flags.indexOf(f);
   if (i > -1) state.client.flags.splice(i, 1);
@@ -526,7 +525,31 @@ function setNote(finding, val) {
 }
 
 function bindChips() {
-  // Chips already bound via inline onclick in renderScreenStep
+  // Finding name cards — use data-finding to avoid inline string escaping issues
+  document.querySelectorAll('[data-finding]').forEach(el => {
+    const finding = el.dataset.finding;
+    const action  = el.dataset.action;
+    const sev     = el.dataset.sev;
+    if (action === 'toggle') {
+      el.addEventListener('click', () => toggleFinding(finding));
+    } else if (action === 'severity') {
+      el.addEventListener('click', () => setSeverity(finding, sev));
+    } else if (action === 'note') {
+      el.addEventListener('input', () => setNote(finding, el.value));
+    }
+  });
+  // Client flag chips
+  document.querySelectorAll('[data-flag]').forEach(el => {
+    el.addEventListener('click', () => toggleClientFlag(el.dataset.flag));
+  });
+  // Screen notes textarea
+  document.querySelectorAll('[data-screen-id]').forEach(el => {
+    const id = el.dataset.screenId;
+    el.addEventListener('input', () => {
+      state.screenNotes = state.screenNotes || {};
+      state.screenNotes[id] = el.value;
+    });
+  });
 }
 
 function switchTab(btn, tabId) {
